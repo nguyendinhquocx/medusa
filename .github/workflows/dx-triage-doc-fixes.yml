@@ -57,7 +57,7 @@ jobs:
           echo "name=$BRANCH" >> $GITHUB_OUTPUT
 
       - name: Run Claude Code to fix docs
-        uses: anthropics/claude-code-base-action@132be24009ca6f292db66a3d1d5a17249cf68a5d # main, installs Claude Code 2.1.282
+        uses: anthropics/claude-code-base-action@beta
         with:
           anthropic_api_key: ${{ secrets.CLAUDE_CODE_API_TOKEN }}
           allowed_tools: "Skill,Read,Write,Edit,Glob,Grep,mcp__linear-server__list_teams,mcp__linear-server__list_issues,mcp__linear-server__get_issue,mcp__linear-server__list_issue_statuses,Bash(git diff:*,git status:*,ls:*,find:*,cat:*)"
