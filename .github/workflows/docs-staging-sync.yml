@@ -15,18 +15,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.MEDUSA_APP_ID }}
-          private-key: ${{ secrets.MEDUSA_APP_PRIVATE_KEY }}
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.REFERENCE_PAT }}
 
       - name: Configure git
         run: |
