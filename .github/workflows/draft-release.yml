@@ -1,4 +1,4 @@
-name: Publish Release
+name: Draft Release
 
 on:
   workflow_dispatch:
@@ -11,40 +11,17 @@ on:
         description: "Additional instructions for Claude (e.g. 'Make sure to highlight the new Subscriptions module' or 'The cart breaking change is the most important one')"
         required: false
         type: string
-      draft:
-        description: "Create the release as a draft instead of publishing it"
-        required: false
-        default: false
-        type: boolean
-  workflow_call:
-    inputs:
-      version:
-        required: false
-        type: string
-      additional_instructions:
-        required: false
-        type: string
-      draft:
-        required: false
-        default: false
-        type: boolean
-    outputs:
-      release_url:
-        value: ${{ jobs.draft-release.outputs.release_url }}
-
 concurrency:
   group: draft-release
   cancel-in-progress: false
 
 jobs:
   draft-release:
-    name: Generate and publish release with Claude
+    name: Generate draft release with Claude
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
-    outputs:
-      release_url: ${{ steps.release.outputs.url }}
 
     steps:
       - name: Checkout repository
@@ -64,8 +41,8 @@ jobs:
         run: |
           git fetch --tags
 
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
           else
             # Auto-detect: use the latest stable tag
             VERSION=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 | sed 's/^v//')
@@ -196,22 +173,13 @@ jobs:
 
       - name: Build Claude prompt
         id: prompt
-        if: steps.existing.outputs.mode != 'unchanged'
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           PREVIOUS_TAG="${{ steps.previous.outputs.tag }}"
           REPO="${{ github.repository }}"
           MINOR_CHANGESETS="${{ steps.changesets.outputs.minor_changesets }}"
-          ADDITIONAL_INSTRUCTIONS="${{ inputs.additional_instructions }}"
-          if [ "${{ steps.existing.outputs.mode }}" = "update" ]; then
-            COMMITS=$(jq --rawfile shas /tmp/new-shas.txt '[.[] | select(.hash as $h | $shas | contains($h))]' /tmp/commits.json)
-            TASK="Release notes for this release were already drafted, and maintainers may have edited them since. Read them from /tmp/existing-notes.md. Update them for Medusa ${TAG} using the commits below, which were merged after the notes were written: add, change, or remove entries as those commits require, and update the tag and highlights in the title block if needed. Keep all other existing content, including manual edits, exactly as it is. Follow every rule in those files for anything you add or change."
-            COMMITS_HEADING="Commits merged since the notes were written (JSON):"
-          else
-            COMMITS=$(cat /tmp/commits.json)
-            TASK="Write GitHub release notes for Medusa ${TAG} by strictly following every rule in those files."
-            COMMITS_HEADING="Commits JSON:"
-          fi
+          ADDITIONAL_INSTRUCTIONS="${{ github.event.inputs.additional_instructions }}"
+          COMMITS=$(cat /tmp/commits.json)
 
           DELIMITER="CLAUDE_PROMPT_EOF"
           {
@@ -221,7 +189,7 @@ jobs:
 
           Step 1 — You MUST load the /writing-releases skill and read all its files, especially the SKILL.md which defines the rules, format, structure, and constraints for writing release notes. Then read the reference files that it links to.
 
-          Step 2 — ${TASK}
+          Step 2 — Write GitHub release notes for Medusa ${TAG} by strictly following every rule in those files.
 
           IMPORTANT: Only create /tmp/release-notes.md using the Write tool. Do not use git commands. Do not create any other files.
 
@@ -240,7 +208,7 @@ jobs:
           - pr_author_login: GitHub username of PR author (if available)
           - pr_labels: labels on the PR
 
-          ${COMMITS_HEADING}
+          Commits JSON:
           ${COMMITS}
           PROMPT
 
@@ -268,17 +236,12 @@ jobs:
           model: claude-sonnet-4-6
           max_turns: 25
 
-      - name: Create or update GitHub release
-        id: release
+      - name: Create draft GitHub release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ steps.existing.outputs.id }}
-          NOTES_SHA: ${{ steps.existing.outputs.notes_sha }}
-          DRAFT: ${{ inputs.draft && 'true' || 'false' }}
         run: |
-          set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
+          PREVIOUS_TAG="${{ steps.previous.outputs.tag }}"
 
           if [ ! -f /tmp/release-notes.md ]; then
             echo "ERROR: /tmp/release-notes.md was not created by Claude"
@@ -293,19 +256,5 @@ jobs:
             --target "${{ github.sha }}"
           )
 
-          PAYLOAD=$(jq -n \
-            --arg tag "$TAG" \
-            --arg name "$RELEASE_TITLE" \
-            --arg target "${{ github.sha }}" \
-            --rawfile body /tmp/release-notes.md \
-            --argjson draft "$DRAFT" \
-            '{tag_name: $tag, name: $name, target_commitish: $target, body: $body, draft: $draft}')
-
-          if [ -n "$RELEASE_ID" ]; then
-            URL=$(gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" --input - --jq '.html_url' <<< "$PAYLOAD")
-          else
-            URL=$(gh api -X POST "repos/$REPO/releases" --input - --jq '.html_url' <<< "$PAYLOAD")
-          fi
-
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Release $TAG saved (draft: $DRAFT): $URL"
+          gh release create "${ARGS[@]}"
+          echo "Draft release created for $TAG"
