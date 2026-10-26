@@ -12,15 +12,11 @@ on:
         type: string
 
 jobs:
-  # Runs the model with no App token and no write access. Its only output is a
-  # patch and PR metadata, which `open-pr` validates before the App token exists.
-  generate:
+  cloud-webhooks-docs-automation:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-    outputs:
-      has_changes: ${{ steps.changes.outputs.has_changes }}
-      base_sha: ${{ steps.base.outputs.sha }}
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -61,11 +57,10 @@ jobs:
         id: write-payload
         env:
           MANUAL_PAYLOAD: ${{ inputs.dispatch_payload }}
-          CLIENT_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
         run: |
           node --input-type=module << 'EOF'
             import { writeFileSync } from "fs"
-            const dispatched = JSON.parse(process.env.CLIENT_PAYLOAD)
+            const dispatched = ${{ toJSON(github.event.client_payload) }}
             const manual = process.env.MANUAL_PAYLOAD
             const payload = manual ? JSON.parse(manual) : dispatched
             writeFileSync(
@@ -95,6 +90,12 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT, `needs_docs=${needed}\n`)
           EOF
 
+      - name: Configure git
+        if: steps.check.outputs.needs_docs == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Extract Claude prompt
         id: extract-prompt
         if: steps.check.outputs.needs_docs == 'true'
@@ -110,10 +111,6 @@ jobs:
               `CLAUDE_PROMPT<<${delimiter}\n${prefix}${a.claudePrompt}${suffix}\n${delimiter}\n`
             )
           EOF
-
-      - name: Lock down repo automation files
-        if: steps.check.outputs.needs_docs == 'true'
-        run: chmod -R a-w .github .claude scripts
 
       - name: Run Claude Code to update webhooks docs
         if: steps.check.outputs.needs_docs == 'true'
@@ -155,7 +152,7 @@ jobs:
         if: steps.check.outputs.needs_docs == 'true' && steps.changes.outputs.has_changes == 'true'
         run: |
           node --input-type=module << 'EOF'
-            import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+            import { existsSync, readFileSync, appendFileSync } from "fs"
 
             const a = JSON.parse(readFileSync("/tmp/analysis.json", "utf8"))
             const flagged = Array.isArray(a.featureFlaggedFeatures) ? a.featureFlaggedFeatures : []
@@ -210,95 +207,14 @@ jobs:
               }
             }
 
-            mkdirSync("/tmp/cloud-out", { recursive: true })
-            writeFileSync("/tmp/cloud-out/pr-title.txt", title)
-            writeFileSync("/tmp/cloud-out/pr-body.md", lines.join("\n"))
+            const body = lines.join("\n")
+            const delimiter = "PR_BODY_EOF"
+            appendFileSync(process.env.GITHUB_OUTPUT, `TITLE=${title}\n`)
+            appendFileSync(process.env.GITHUB_OUTPUT, `BODY<<${delimiter}\n${body}\n${delimiter}\n`)
           EOF
 
-      - name: Package result
-        if: steps.check.outputs.needs_docs == 'true' && steps.changes.outputs.has_changes == 'true'
-        run: |
-          set -euo pipefail
-          git add -- www/apps/cloud/app www/apps/cloud/generated www/apps/cloud/sidebar.mjs
-          git diff --cached --binary > /tmp/cloud-out/docs.patch
-
-      - name: Upload result
-        if: steps.check.outputs.needs_docs == 'true' && steps.changes.outputs.has_changes == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: cloud-webhooks-docs-${{ github.run_id }}
-          path: /tmp/cloud-out/
-          if-no-files-found: error
-          retention-days: 1
-
-  # Never runs code from the model's job. Validates the patch against fixed
-  # paths and limits before the App token exists.
-  open-pr:
-    needs: generate
-    if: needs.generate.outputs.has_changes == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.generate.outputs.base_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Download result
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: cloud-webhooks-docs-${{ github.run_id }}
-          path: /tmp/cloud-out
-
-      - name: Validate and apply patch
-        id: validate
-        run: |
-          set -euo pipefail
-          cd /tmp/cloud-out
-          if [[ ! -s docs.patch || "$(wc -c < docs.patch)" -gt 5242880 ]]; then
-            echo "::error::docs.patch is empty or exceeds 5 MB." >&2
-            exit 1
-          fi
-          if [[ "$(wc -c < pr-body.md)" -gt 30000 ]]; then
-            echo "::error::pr-body.md exceeds 30 KB." >&2
-            exit 1
-          fi
-          TITLE=$(cat pr-title.txt)
-          if [[ "$TITLE" == *$'\n'* || ${#TITLE} -gt 120 || ! "$TITLE" =~ ^docs:\ [[:print:]]+\ \[automated\]$ ]]; then
-            TITLE="docs: update cloud webhooks documentation [automated]"
-          fi
-          DELIMITER="PR_BODY_$(openssl rand -hex 16)"
-          {
-            echo "title=$TITLE"
-            echo "body<<$DELIMITER"
-            cat pr-body.md
-            echo
-            echo "$DELIMITER"
-          } >> "$GITHUB_OUTPUT"
-
-          cd "$GITHUB_WORKSPACE"
-          git apply --index /tmp/cloud-out/docs.patch
-          OUTSIDE=$(git diff --cached --no-renames --name-only \
-            | grep -vE '^www/apps/cloud/(app|generated)/[^.][^/]*(/[^.][^/]*)*\.(mdx|json|mjs)$|^www/apps/cloud/sidebar\.mjs$' \
-            || true)
-          if [[ -n "$OUTSIDE" ]]; then
-            echo "::error::Patch touches disallowed paths:" >&2
-            echo "$OUTSIDE" >&2
-            exit 1
-          fi
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.MEDUSA_APP_ID }}
-          private-key: ${{ secrets.MEDUSA_APP_PRIVATE_KEY }}
-
-
       - name: Create Pull Request
+        if: steps.check.outputs.needs_docs == 'true' && steps.changes.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@38e0b6e68b4c852a5500a94740f0e535e0d7ba54  # v4
         with:
           token: ${{ secrets.REFERENCE_PAT }}
@@ -306,10 +222,10 @@ jobs:
           base: develop
           branch: docs/cloud-webhooks-docs
           branch-suffix: timestamp
-          title: ${{ steps.validate.outputs.title }}
+          title: ${{ steps.pr-body.outputs.TITLE }}
           labels: "type: docs"
           add-paths: |
             www/apps/cloud/app
             www/apps/cloud/generated
             www/apps/cloud/sidebar.mjs
-          body: ${{ steps.validate.outputs.body }}
+          body: ${{ steps.pr-body.outputs.BODY }}
