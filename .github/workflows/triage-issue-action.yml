@@ -128,6 +128,9 @@ jobs:
               "permissions": {
                 "deny": [
                   "Read(//proc/**)",
+                  "Read(//home/runner/work/_temp/**)",
+                  "Write(//home/runner/work/_temp/**)",
+                  "Edit(//home/runner/work/_temp/**)",
                   "Write(//**/.claude/**)",
                   "Edit(//**/.claude/**)",
                   "Write(//**/.mcp.json)",
