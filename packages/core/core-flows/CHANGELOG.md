@@ -1,5 +1,22 @@
 # @medusajs/core-flows
 
+## 2.22.6
+
+### Patch Changes
+
+- [#17719](https://github.com/medusajs/medusa/pull/17719) [`9d9fd8d`](https://github.com/medusajs/medusa/commit/9d9fd8dbab62395df645a41a8c5db2e94a6e52a2) Thanks [@medusa-os-bot](https://github.com/apps/medusa-os-bot)! - fix(core-flows): don't return order items from getOrdersListWorkflow unless requested
+
+- Updated dependencies []:
+  - @medusajs/framework@2.22.6
+
+## 2.22.5
+
+### Patch Changes
+
+- [#17710](https://github.com/medusajs/medusa/pull/17710) [`10c7d1d`](https://github.com/medusajs/medusa/commit/10c7d1d9ae2e61947423888518305754bac010a9) Thanks [@medusa-os-bot](https://github.com/apps/medusa-os-bot)! - fix(core-flows): don't copy a location's fulfillment sets into each shipping option
+- Updated dependencies [[`7dd3c28`](https://github.com/medusajs/medusa/commit/7dd3c28fba6b74aaab84612b696cab597e12c667)]:
+  - @medusajs/framework@2.22.5
+
 ## 2.22.4
 
 ### Patch Changes
