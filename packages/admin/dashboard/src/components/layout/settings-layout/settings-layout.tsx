@@ -28,6 +28,7 @@ import {
   useResourcePermissions,
   useReturnReasonPermissions,
   useSalesChannelPermissions,
+  useSearchIndexPermissions,
   useStockLocationPermissions,
   useStorePermissions,
   useTaxRegionPermissions,
@@ -206,7 +207,10 @@ const useSettingRoutes = (): INavItem[] => {
 
 const useDeveloperRoutes = (): INavItem[] => {
   const { t } = useTranslation()
-  const { enabled: isSearchEnabled } = useSearchIndexes()
+  const { canRead: canReadSearchIndexes } = useSearchIndexPermissions()
+  const { enabled: isSearchEnabled } = useSearchIndexes({
+    enabled: canReadSearchIndexes,
+  })
 
   const { canRead: canReadApiKeys } = useApiKeyPermissions()
   const { canRead: canReadWorkflows } = useWorkflowExecutionPermissions()
@@ -338,7 +342,7 @@ const Header = () => {
         to={from}
         replace
         className={clx(
-          "flex items-center rounded-md bg-ui-bg-subtle outline-none transition-fg",
+          "flex items-center rounded-md bg-ui-bg-subtle outline-hidden transition-fg",
           "hover:bg-ui-bg-subtle-hover",
           "focus-visible:shadow-borders-focus"
         )}

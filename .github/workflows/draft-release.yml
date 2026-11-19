@@ -243,6 +243,10 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           PREVIOUS_TAG="${{ steps.previous.outputs.tag }}"
 
+          if [ "$PUBLISHED" = "true" ]; then
+            DRAFT=false
+          fi
+
           if [ ! -f /tmp/release-notes.md ]; then
             echo "ERROR: /tmp/release-notes.md was not created by Claude"
             exit 1
